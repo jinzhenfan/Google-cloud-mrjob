@@ -2,7 +2,7 @@
 
 MapReduce practice on wikipages
 
-> XML Parsing and word counting of simple, english and thai wikipedia pages.
+> XML Parsing and word counting of simple, english and thai wikipedia pages. 3.5 million pages, 8GB data.
 
 > Analyze the cross-reference between wikipedia pages
 
