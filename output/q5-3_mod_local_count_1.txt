@@ -1,0 +1,1 @@
+"Summary"	{"50%":6.0,"Avg links per pages":15.6394399686,"25%":1.0,"75%":16.0,"standard deviation":50.4418270916,"Total number of articles":188418}

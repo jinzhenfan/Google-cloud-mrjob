@@ -1,252 +1,118 @@
-<!DOCTYPE HTML>
-<html>
+#!/bin/python
+"""
+Adapted from https://github.com/Yelp/mrjob
+"""
 
-<head>
-    <meta charset="utf-8">
+from mrjob.job import MRJob
+import re
+import heapq
+from lxml import etree
+from io import StringIO, BytesIO
+import mwparserfromhell
+SEG_RE = re.compile(r"(.+?)\|")
+regex1=re.compile(r"category:.*")
+regex2=re.compile(r"template:.*")
+regex3=re.compile(r"talk:.*")
+regex4=re.compile(r"help:.*")
+regex5=re.compile(r"file:.*")
 
-    <title>Q7.py (editing)</title>
-    <link rel="shortcut icon" type="image/x-icon" href="/static/base/images/favicon.ico?v=97c6417ed01bdc0ae3ef32ae4894fd03">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <link rel="stylesheet" href="/static/components/jquery-ui/themes/smoothness/jquery-ui.min.css?v=9b2c8d3489227115310662a343fce11c" type="text/css" />
-    <link rel="stylesheet" href="/static/components/jquery-typeahead/dist/jquery.typeahead.min.css?v=7afb461de36accb1aa133a1710f5bc56" type="text/css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+class MRParse(MRJob):
+
+    def mapper_init( self ):
+        #self.parser = etree.XMLParser()
+        self.status=0
+        self.page=''
+
+    def mapper( self , _ , line ):
+        
+        if '<page>' in line:
+            self.status=1
+        
+        if self.status:
+            self.page+=line
+            if '</page>' in line:
+                
+                self.status=0
+                try:
+                    root = etree.fromstring(self.page) # the parser might fail
+                    
+                    if root.find('revision/text') is not None and root.find('title') is not None:
+                        #title=root.find('title').text.decode('utf-8').lower()
+                        title=root.find('title').text.lower()
+                        if any(regex.match(title) for regex in [regex1, regex2, regex3, regex4, regex5])==False: # and title=='april':
+                            
+                            text=root.find('revision/text').text
+                            wikicode=mwparserfromhell.parse(text)
+                            wikilinks= wikicode.filter_wikilinks() # wikilink object
+                            #links=list(set([str(link.title).decode('utf-8').lower() for link in wikilinks]))
+                            links=list(set([str(link.title).lower() for link in wikilinks]))
+                            links=filter(lambda x: any(regex.match(x) for regex in [regex1, regex2, regex3, regex4, regex5])== False,links)
+                            if re.search(SEG_RE, title):
+                                title=re.search(SEG_RE, title).group(1)    
+                            weight=1.0/(len(links)+10)
+
+                            for link in links:                                                
+                                yield title, (link, weight, 'link')
+                                yield link, (title, weight, 'reverse')
+                    self.page=''# Reset the string
+                                
+                except: 
+                    self.page=''
+                    
+                
+    def reducer(self, key, values):  #Multiplication
+
+        start=((link, weight) for link, weight, k in values if k=='link')
+        end=((link, weight) for link, weight, k in values if k=='reverse')       
+        for title1, weight1 in start:
+            for title2, weight2 in end:
+                if title1!=title2:
+                    result=tuple(sorted([title1,title2]))                    
+                    yield result, weight1*weight2       
+                    
+class Summation(MRJob):
+
+    def reducer(self, key, counts):  
+        yield (key, sum(counts))
+
+class Top(MRJob): #select top 100 double links
+  
+    def mapper_init(self):
+        self.h=[]
     
+    def mapper(self, dlink, count):
     
-<link rel="stylesheet" href="/static/components/codemirror/lib/codemirror.css?v=95410923b46f2a7fa209e00c20100349">
-<link rel="stylesheet" href="/static/components/codemirror/addon/dialog/dialog.css?v=c89dce10b44d2882a024e7befc2b63f5">
+        if len(self.h)<100:
+            heapq.heappush(self.h,(count,dlink))
+        elif self.h[0][0]<count and len(self.h)==100:
+            heapq.heappop(self.h)
+            heapq.heappush(self.h,(count,dlink))
 
-    <link rel="stylesheet" href="/static/style/style.min.css?v=974839a888beb55bbba87883fafd90fa" type="text/css"/>
-    
+    def mapper_final(self):
+        for count, dlink in self.h:
+            yield (1, (count, dlink))
+  
 
-    <link rel="stylesheet" href="/custom/custom.css" type="text/css" />
-    <script src="/static/components/es6-promise/promise.min.js?v=f004a16cb856e0ff11781d01ec5ca8fe" type="text/javascript" charset="utf-8"></script>
-    <script src="/static/components/requirejs/require.js?v=6da8be361b9ee26c5e721e76c6d4afce" type="text/javascript" charset="utf-8"></script>
-    <script>
-      require.config({
-          
-          urlArgs: "v=20170418163613",
-          
-          baseUrl: '/static/',
-          paths: {
-            'auth/js/main': 'auth/js/main.min',
-            custom : '/custom',
-            nbextensions : '/nbextensions',
-            kernelspecs : '/kernelspecs',
-            underscore : 'components/underscore/underscore-min',
-            backbone : 'components/backbone/backbone-min',
-            jquery: 'components/jquery/jquery.min',
-            bootstrap: 'components/bootstrap/js/bootstrap.min',
-            bootstraptour: 'components/bootstrap-tour/build/js/bootstrap-tour.min',
-            'jquery-ui': 'components/jquery-ui/ui/minified/jquery-ui.min',
-            moment: 'components/moment/moment',
-            codemirror: 'components/codemirror',
-            termjs: 'components/xterm.js/dist/xterm',
-            typeahead: 'components/jquery-typeahead/dist/jquery.typeahead.min',
-          },
-	  map: { // for backward compatibility
-	    "*": {
-		"jqueryui": "jquery-ui",
-	    }
-	  },
-          shim: {
-            typeahead: {
-              deps: ["jquery"],
-              exports: "typeahead"
-            },
-            underscore: {
-              exports: '_'
-            },
-            backbone: {
-              deps: ["underscore", "jquery"],
-              exports: "Backbone"
-            },
-            bootstrap: {
-              deps: ["jquery"],
-              exports: "bootstrap"
-            },
-            bootstraptour: {
-              deps: ["bootstrap"],
-              exports: "Tour"
-            },
-            "jquery-ui": {
-              deps: ["jquery"],
-              exports: "$"
-            }
-          },
-          waitSeconds: 30,
-      });
-
-      require.config({
-          map: {
-              '*':{
-                'contents': 'services/contents',
-              }
-          }
-      });
-
-      define("bootstrap", function () {
-          return window.$;
-      });
-
-      define("jquery", function () {
-          return window.$;
-      });
-
-      define("jqueryui", function () {
-          return window.$;
-      });
-
-      define("jquery-ui", function () {
-          return window.$;
-      });
-      // error-catching custom.js shim.
-      define("custom", function (require, exports, module) {
-          try {
-              var custom = require('custom/custom');
-              console.debug('loaded custom.js');
-              return custom;
-          } catch (e) {
-              console.error("error loading custom.js", e);
-              return {};
-          }
-      })
-    </script>
-
-    
+    def reducer_init(self):
+        self.top=[]
+        
+    def reducer(self, _, word_count):
+        for count, dlink in word_count:
+            if len(self.top)<100:
+                heapq.heappush(self.top, (count, dlink))
+            elif self.top[0][0]<count and len(self.top)==100:
+                heapq.heapreplace(self.top,(count, dlink))
+  
+    def reducer_final(self):
+        
+        for count, dlink in self.top:
+            yield dlink, count
     
 
-</head>
+class SteppedJob(MRJob):
 
-<body class="edit_app "
- 
-data-base-url="/"
-data-file-path="datacourse/MR/projects/mrjob/src/Q7.py"
+    def steps(self):
+        return MRParse().steps()  + Summation().steps() + Top().steps()
 
-  
- 
-
->
-
-<noscript>
-    <div id='noscript'>
-      Jupyter Notebook requires JavaScript.<br>
-      Please enable it to proceed.
-  </div>
-</noscript>
-
-<div id="header">
-  <div id="header-container" class="container">
-  <div id="ipython_notebook" class="nav navbar-brand pull-left"><a href="/tree" title='dashboard'><img src='/static/base/images/logo.png?v=641991992878ee24c6f3826e81054a0f' alt='Jupyter Notebook'/></a></div>
-
-  
-  
-  
-
-    <span id="login_widget">
-      
-        <button id="logout" class="btn btn-sm navbar-btn">Logout</button>
-      
-    </span>
-
-  
-
-  
-
-  
-
-<span id="save_widget" class="pull-left save_widget">
-    <span class="filename"></span>
-    <span class="last_modified"></span>
-</span>
-
-
-  </div>
-  <div class="header-bar"></div>
-
-  
-
-<div id="menubar-container" class="container">
-  <div id="menubar">
-    <div id="menus" class="navbar navbar-default" role="navigation">
-      <div class="container-fluid">
-          <p  class="navbar-text indicator_area">
-          <span id="current-mode" >current mode</span>
-          </p>
-        <button type="button" class="btn btn-default navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-          <i class="fa fa-bars"></i>
-          <span class="navbar-text">Menu</span>
-        </button>
-        <ul class="nav navbar-nav navbar-right">
-          <li id="notification_area"></li>
-        </ul>
-        <div class="navbar-collapse collapse">
-          <ul class="nav navbar-nav">
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
-              <ul id="file-menu" class="dropdown-menu">
-                <li id="new-file"><a href="#">New</a></li>
-                <li id="save-file"><a href="#">Save</a></li>
-                <li id="rename-file"><a href="#">Rename</a></li>
-                <li id="download-file"><a href="#">Download</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
-              <ul id="edit-menu" class="dropdown-menu">
-                <li id="menu-find"><a href="#">Find</a></li>
-                <li id="menu-replace"><a href="#">Find &amp; Replace</a></li>
-                <li class="divider"></li>
-                <li class="dropdown-header">Key Map</li>
-                <li id="menu-keymap-default"><a href="#">Default<i class="fa"></i></a></li>
-                <li id="menu-keymap-sublime"><a href="#">Sublime Text<i class="fa"></i></a></li>
-                <li id="menu-keymap-vim"><a href="#">Vim<i class="fa"></i></a></li>
-                <li id="menu-keymap-emacs"><a href="#">emacs<i class="fa"></i></a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">View</a>
-              <ul id="view-menu" class="dropdown-menu">
-              <li id="toggle_header" title="Show/Hide the logo and notebook title (above menu bar)">
-              <a href="#">Toggle Header</a></li>
-              <li id="menu-line-numbers"><a href="#">Toggle Line Numbers</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Language</a>
-              <ul id="mode-menu" class="dropdown-menu">
-              </ul>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="lower-header-bar"></div>
-
-
-</div>
-
-<div id="site">
-
-
-<div id="texteditor-backdrop">
-<div id="texteditor-container" class="container"></div>
-</div>
-
-
-</div>
-
-
-
-
-
-
-    
-
-
-
-    <script src="/static/edit/js/main.min.js?v=d89587f52a269971fb4892bc34f54d0a" type="text/javascript" charset="utf-8"></script>
-
-
-
-</body>
-
-</html>
+if __name__ == '__main__':
+    SteppedJob.run()

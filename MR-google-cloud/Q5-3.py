@@ -1,252 +1,110 @@
-<!DOCTYPE HTML>
-<html>
+#improve efficiency of calculating mean, count, and std.
+#!/bin/python
+"""
+Adapted from https://github.com/Yelp/mrjob
+"""
 
-<head>
-    <meta charset="utf-8">
+from mrjob.job import MRJob
+import re
+import heapq
+from lxml import etree
+from io import StringIO, BytesIO
+import mwparserfromhell
+WORD_RE = re.compile(r"[\w]+")
+import math,random
+import numpy as np
+reservior=1000
+class LinkCount(MRJob):
 
-    <title>Q5-3.py (editing)</title>
-    <link rel="shortcut icon" type="image/x-icon" href="/static/base/images/favicon.ico?v=97c6417ed01bdc0ae3ef32ae4894fd03">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <link rel="stylesheet" href="/static/components/jquery-ui/themes/smoothness/jquery-ui.min.css?v=9b2c8d3489227115310662a343fce11c" type="text/css" />
-    <link rel="stylesheet" href="/static/components/jquery-typeahead/dist/jquery.typeahead.min.css?v=7afb461de36accb1aa133a1710f5bc56" type="text/css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    
-<link rel="stylesheet" href="/static/components/codemirror/lib/codemirror.css?v=95410923b46f2a7fa209e00c20100349">
-<link rel="stylesheet" href="/static/components/codemirror/addon/dialog/dialog.css?v=c89dce10b44d2882a024e7befc2b63f5">
+    def mapper_init( self ):
+        #self.parser = etree.XMLParser()
+        self.status=0
+        self.page=''
+        self.pagecount=0
+        self.linkcount=0
+        self.square=0
+        self.h=[]
 
-    <link rel="stylesheet" href="/static/style/style.min.css?v=974839a888beb55bbba87883fafd90fa" type="text/css"/>
-    
-
-    <link rel="stylesheet" href="/custom/custom.css" type="text/css" />
-    <script src="/static/components/es6-promise/promise.min.js?v=f004a16cb856e0ff11781d01ec5ca8fe" type="text/javascript" charset="utf-8"></script>
-    <script src="/static/components/requirejs/require.js?v=6da8be361b9ee26c5e721e76c6d4afce" type="text/javascript" charset="utf-8"></script>
-    <script>
-      require.config({
+    def mapper( self , _ , line ):
+        if '<page>' in line:
+            self.status=1
           
-          urlArgs: "v=20170418163613",
-          
-          baseUrl: '/static/',
-          paths: {
-            'auth/js/main': 'auth/js/main.min',
-            custom : '/custom',
-            nbextensions : '/nbextensions',
-            kernelspecs : '/kernelspecs',
-            underscore : 'components/underscore/underscore-min',
-            backbone : 'components/backbone/backbone-min',
-            jquery: 'components/jquery/jquery.min',
-            bootstrap: 'components/bootstrap/js/bootstrap.min',
-            bootstraptour: 'components/bootstrap-tour/build/js/bootstrap-tour.min',
-            'jquery-ui': 'components/jquery-ui/ui/minified/jquery-ui.min',
-            moment: 'components/moment/moment',
-            codemirror: 'components/codemirror',
-            termjs: 'components/xterm.js/dist/xterm',
-            typeahead: 'components/jquery-typeahead/dist/jquery.typeahead.min',
-          },
-	  map: { // for backward compatibility
-	    "*": {
-		"jqueryui": "jquery-ui",
-	    }
-	  },
-          shim: {
-            typeahead: {
-              deps: ["jquery"],
-              exports: "typeahead"
-            },
-            underscore: {
-              exports: '_'
-            },
-            backbone: {
-              deps: ["underscore", "jquery"],
-              exports: "Backbone"
-            },
-            bootstrap: {
-              deps: ["jquery"],
-              exports: "bootstrap"
-            },
-            bootstraptour: {
-              deps: ["bootstrap"],
-              exports: "Tour"
-            },
-            "jquery-ui": {
-              deps: ["jquery"],
-              exports: "$"
-            }
-          },
-          waitSeconds: 30,
-      });
-
-      require.config({
-          map: {
-              '*':{
-                'contents': 'services/contents',
-              }
-          }
-      });
-
-      define("bootstrap", function () {
-          return window.$;
-      });
-
-      define("jquery", function () {
-          return window.$;
-      });
-
-      define("jqueryui", function () {
-          return window.$;
-      });
-
-      define("jquery-ui", function () {
-          return window.$;
-      });
-      // error-catching custom.js shim.
-      define("custom", function (require, exports, module) {
-          try {
-              var custom = require('custom/custom');
-              console.debug('loaded custom.js');
-              return custom;
-          } catch (e) {
-              console.error("error loading custom.js", e);
-              return {};
-          }
-      })
-    </script>
-
-    
-    
-
-</head>
-
-<body class="edit_app "
- 
-data-base-url="/"
-data-file-path="datacourse/MR/projects/mrjob/src/Q5-3.py"
-
-  
- 
-
->
-
-<noscript>
-    <div id='noscript'>
-      Jupyter Notebook requires JavaScript.<br>
-      Please enable it to proceed.
-  </div>
-</noscript>
-
-<div id="header">
-  <div id="header-container" class="container">
-  <div id="ipython_notebook" class="nav navbar-brand pull-left"><a href="/tree" title='dashboard'><img src='/static/base/images/logo.png?v=641991992878ee24c6f3826e81054a0f' alt='Jupyter Notebook'/></a></div>
-
-  
-  
-  
-
-    <span id="login_widget">
+        if self.status:
+            self.page+=line
+            if '</page>' in line:
+                self.status=0
+                try:
+                    root = etree.fromstring(self.page) # the parser might fail 
+                    
+                    if root.find('revision/text') is not None and root.find('id') is not None:
+                        text=root.find('revision/text').text
+                        pid= root.find('id').text
+                        wikicode = mwparserfromhell.parse(text)                 
+                        links = list(set(" ".join(fragment.split()) for fragment in wikicode.filter_wikilinks()))
+                        self.pagecount+=1
+                        self.linkcount+=len(links)
+                        self.square+=len(links)**2
+                        r = random.random()
+                        if len(self.h)<reservior:
+                            heapq.heappush(self.h, (r, len(links)))
+                        elif self.h[0][0]<r and len(self.h)==reservior:
+                            heapq.heapreplace(self.h,(r, len(links)))
       
-        <button id="logout" class="btn btn-sm navbar-btn">Logout</button>
-      
-    </span>
+                    self.page=''# Reset the string
+                    pid=''
+                                
+                except: 
+                    self.page=''
+                    pid=''
+                    
+    def mapper_final(self):
+        
+        yield 1, (self.pagecount, self.linkcount, self.square, self.h)
+              
+    def reducer_init(self):
+        self.top=[]
+        self.totalpage=0
+        self.totallink=0
+        self.totalsquare=0
 
-  
-
-  
-
-  
-
-<span id="save_widget" class="pull-left save_widget">
-    <span class="filename"></span>
-    <span class="last_modified"></span>
-</span>
-
-
-  </div>
-  <div class="header-bar"></div>
-
-  
-
-<div id="menubar-container" class="container">
-  <div id="menubar">
-    <div id="menus" class="navbar navbar-default" role="navigation">
-      <div class="container-fluid">
-          <p  class="navbar-text indicator_area">
-          <span id="current-mode" >current mode</span>
-          </p>
-        <button type="button" class="btn btn-default navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-          <i class="fa fa-bars"></i>
-          <span class="navbar-text">Menu</span>
-        </button>
-        <ul class="nav navbar-nav navbar-right">
-          <li id="notification_area"></li>
-        </ul>
-        <div class="navbar-collapse collapse">
-          <ul class="nav navbar-nav">
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
-              <ul id="file-menu" class="dropdown-menu">
-                <li id="new-file"><a href="#">New</a></li>
-                <li id="save-file"><a href="#">Save</a></li>
-                <li id="rename-file"><a href="#">Rename</a></li>
-                <li id="download-file"><a href="#">Download</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
-              <ul id="edit-menu" class="dropdown-menu">
-                <li id="menu-find"><a href="#">Find</a></li>
-                <li id="menu-replace"><a href="#">Find &amp; Replace</a></li>
-                <li class="divider"></li>
-                <li class="dropdown-header">Key Map</li>
-                <li id="menu-keymap-default"><a href="#">Default<i class="fa"></i></a></li>
-                <li id="menu-keymap-sublime"><a href="#">Sublime Text<i class="fa"></i></a></li>
-                <li id="menu-keymap-vim"><a href="#">Vim<i class="fa"></i></a></li>
-                <li id="menu-keymap-emacs"><a href="#">emacs<i class="fa"></i></a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">View</a>
-              <ul id="view-menu" class="dropdown-menu">
-              <li id="toggle_header" title="Show/Hide the logo and notebook title (above menu bar)">
-              <a href="#">Toggle Header</a></li>
-              <li id="menu-line-numbers"><a href="#">Toggle Line Numbers</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Language</a>
-              <ul id="mode-menu" class="dropdown-menu">
-              </ul>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="lower-header-bar"></div>
+        
+    def reducer(self, alias, mappercount):  
+        for pagecount, linkcount, square, heaps in mappercount:
+            self.totalpage+=pagecount
+            self.totallink+=linkcount
+            self.totalsquare+=square
+            for r, links in heaps:
+                r2 = random.random()
+                if len(self.top)<reservior:
+                    heapq.heappush(self.top, (r2, links))
+                elif self.top[0][0]<r2 and len(self.top)==reservior:
+                    heapq.heapreplace(self.top, (r2, links))
 
 
-</div>
+    def reducer_final(self):
+        quantile=[]
+        avg_links=self.totallink*1.0/self.totalpage
+        avg_square=self.totalsquare*1.0/self.totalpage
+        std=math.sqrt(avg_square-avg_links**2)
 
-<div id="site">
+        for r2, links in self.top:
+            quantile.append(links)
+            
+        values=np.array(quantile)
+        
+        q1 = np.percentile(values, 25) # return 50th percentile, e.g median.
 
+        q2 = np.percentile(values, 50) # return 50th percentile, e.g median.
+        
+        q3 = np.percentile(values, 75) # return 50th percentile, e.g median.
 
-<div id="texteditor-backdrop">
-<div id="texteditor-container" class="container"></div>
-</div>
-
-
-</div>
-
-
-
-
-
-
+        yield "Summary", {'Total number of articles': self.totalpage, "Avg links per pages": avg_links, "standard deviation": std, '25%': q1, "50%": q2, "75%": q3}      
     
 
+class SteppedJob(MRJob):
 
+  def steps(self):
+    return LinkCount().steps()
 
-    <script src="/static/edit/js/main.min.js?v=d89587f52a269971fb4892bc34f54d0a" type="text/javascript" charset="utf-8"></script>
-
-
-
-</body>
-
-</html>
+if __name__ == '__main__':
+  SteppedJob.run()
