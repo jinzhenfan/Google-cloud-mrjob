@@ -1,13 +1,17 @@
 # Google-cloud-mrjob
 
-MapReduce practice on wikipages
+MapReduce practice on wikipages.
 
-> XML Parsing and word counting of simple, english and thai wikipedia pages. 3.5 million pages, 8GB data.
+* Aim: Find the hot points in the wikipage network.
 
-> Analyze the cross-reference between wikipedia pages
+* Method: 
 
-> Run mrjob on local, hadoop and Google Cloud Services. Evaluate the sacalability of algorithm. 
+** Analyze word frequency and cross-reference of simple, english and thai wikipedia pages (3.5 million pages, 8GB data). 
 
-> Use reservior sampling for quantile calculation
+** XML Parsing of contents. 
 
-> Use heap structure to accelerate aggregation
+** Use heap structure to accelerate basic stats and aggregation for word counting.
+
+** Use reservior sampling for quantile calculation
+
+** Run mrjob on local, hadoop and Google Cloud Services. Evaluate the sacalability of algorithm. 
